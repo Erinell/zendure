@@ -1,0 +1,22 @@
+{
+  "name": "zendure-solarflow-controller",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Contrôle local de la batterie Zendure SolarFlow 800 Plus selon la puissance Linky et la production solaire",
+  "scripts": {
+    "start": "bun run src/main.ts",
+    "start:dry": "bun run src/main.ts --dry-run",
+    "start:verbose": "bun run src/main.ts --verbose",
+    "check": "tsc --noEmit",
+    "test": "bun test",
+    "test:connectivity": "bun run tests/connectivity.ts",
+    "test:timing": "bun run tests/timing.ts",
+    "test:history": "bun run tests/history.ts",
+    "test:smoke": "bun run tests/main-smoke.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}
