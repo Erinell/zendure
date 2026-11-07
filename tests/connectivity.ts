@@ -24,8 +24,11 @@ async function main(): Promise<void> {
     check(report.sn === CONFIG.battery.serialNumber, "Numéro de série batterie (BATTERY_SERIAL)");
     check(!p.fault, "Batterie sans défaut", {
       fault: p.fault,
+      faultLevel: p.faultLevel,
+      isError: p.isError,
       gridState: p.gridState,
       dataReady: p.dataReady,
+      socLimit: p.socLimit,
     });
     log.info("Batterie", {
       produit: report.product,
@@ -41,6 +44,11 @@ async function main(): Promise<void> {
       socSet: `${p.socSetRaw / 10}%`,
       packState: p.packState,
       packPower: `${p.packPowerW} W`,
+      faultLevel: p.faultLevel,
+      isError: p.isError,
+      gridState: p.gridState,
+      dataReady: p.dataReady,
+      socLimit: p.socLimit,
     });
   } catch (error) {
     check(false, "Batterie", errorMessage(error));

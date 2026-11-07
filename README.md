@@ -188,6 +188,11 @@ Le programme combine plusieurs protections :
 
 - Lecture de la batterie refusée si le **numéro de série** ne correspond pas.
 - `faultLevel`, `is_error`, `dataReady` ou `gridState` anormal → **standby**.
+- Les logs distinguent clairement l'état de la batterie :
+  - `SOC minimum atteint (20%) — décharge terminée` ou `SOC sous le seuil (18% < 20%)` : fin de décharge normale ;
+  - `Batterie: gridState=0, SOC minimum (20%)` : batterie hors réseau à son minimum, standby ;
+  - `Batterie: faultLevel=...` ou `is_error=...` : défaut matériel ou erreur interne ;
+  - `Batterie: dataReady=0` : données non prêtes, attente avant reprise.
 - Linky ou batterie sans réponse depuis **15 s** → **standby**.
 - Retour des données → attente de 10 s avant de reprendre.
 - SOC ≤ 20 % → aucune décharge ; SOC ≥ 100 % → aucune charge.

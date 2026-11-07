@@ -65,8 +65,8 @@ export class BatteryController {
       const reason = !gridOk
         ? "Linky indisponible ou mesure périmée"
         : input.fault
-          ? "Défaut batterie ou batterie hors réseau"
-          : "Batterie indisponible";
+          ? (input.faultReason ?? "Batterie: défaut non précisé")
+          : "Batterie indisponible (pas de mesure récente)";
       this.enterFault(now, reason);
       return this.decision();
     }
@@ -89,10 +89,10 @@ export class BatteryController {
 
     // Sécurité SOC : on ne dépasse jamais les bornes, même si le matériel les applique déjà.
     if (this.mode === "discharging" && soc <= this.options.minSocPercent) {
-      this.transitionTo("idle", now, "SOC minimum atteint");
+      this.transitionTo("idle", now, `SOC minimum atteint (${soc}%) — décharge terminée`);
       this.lastDischargeEndAt = now;
     } else if (this.mode === "charging" && soc >= this.options.maxSocPercent) {
-      this.transitionTo("idle", now, "SOC maximum atteint");
+      this.transitionTo("idle", now, `SOC maximum atteint (${soc}%) — charge terminée`);
       this.lastChargeEndAt = now;
     }
 
@@ -214,7 +214,10 @@ export class BatteryController {
     }
 
     this.targetW = 0;
-    this.reason = `Veille (S2=${Math.round(grid)} W, SOC=${soc}%)`;
+    this.reason =
+      soc <= this.options.minSocPercent
+        ? `SOC minimum atteint (${soc}%) — veille, charge PV possible si surplus`
+        : `Veille (S2=${Math.round(grid)} W, SOC=${soc}%)`;
   }
 
   private startCharging(input: ControlInput, now: number): void {
@@ -255,7 +258,7 @@ export class BatteryController {
     const { charge } = this.options.config;
 
     if (soc >= this.options.maxSocPercent) {
-      this.transitionTo("idle", now, "SOC maximum atteint");
+      this.transitionTo("idle", now, `SOC maximum atteint (${soc}%) — charge terminée`);
       this.lastChargeEndAt = now;
       return;
     }
@@ -339,7 +342,7 @@ export class BatteryController {
     const { discharge } = this.options.config;
 
     if (soc <= this.options.minSocPercent) {
-      this.transitionTo("idle", now, "SOC minimum atteint");
+      this.transitionTo("idle", now, `SOC minimum atteint (${soc}%) — décharge terminée`);
       this.lastDischargeEndAt = now;
       return;
     }

@@ -241,6 +241,7 @@ export interface BatteryProperties {
   smartMode: number;
   minSoc: number;
   socSet: number;
+  socLimit: number;
   chargeMaxLimit: number;
   inverseMaxPower: number;
   packState: number;
@@ -296,8 +297,11 @@ export interface BatterySnapshot {
   minSocRaw: number;
   socSetRaw: number;
   fault: boolean;
+  faultLevel: number;
+  isError: number;
   gridState: number;
   dataReady: boolean;
+  socLimit: number;
   ts: number;
   hardwareMaxChargeW: number;
   hardwareMaxDischargeW: number;
@@ -387,6 +391,8 @@ export interface ControlInput {
   actualOutputW: number;
   actualInputW: number;
   fault: boolean;
+  /** Raison structurée du défaut batterie, par exemple "gridState=0" ou "is_error=1". */
+  faultReason: string | null;
 }
 
 export interface ControlDecision {

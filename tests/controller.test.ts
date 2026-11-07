@@ -64,6 +64,7 @@ class Harness {
         actualOutputW: 0,
         actualInputW: 0,
         fault: false,
+        faultReason: null,
         ...overrides,
       };
       this.last = this.controller.update(input);
@@ -120,12 +121,13 @@ describe("BatteryController", () => {
     expect(decision.targetPowerW).toBe(300);
   });
 
-  test("ne descend pas sous le SOC minimum", () => {
+  test("ne descend pas sous le SOC minimum et l'explique", () => {
     const h = new Harness();
     h.feed(10, { gridW: 500, solarW: 0, socPercent: 50 });
     const decision = h.feed(2, { gridW: 500, solarW: 0, socPercent: 20 });
     expect(decision.mode).toBe("idle");
     expect(decision.commandMode).toBe("standby");
+    expect(decision.reason).toContain("SOC minimum");
   });
 
   test("ne charge pas au-dessus du SOC maximum", () => {
@@ -158,6 +160,19 @@ describe("BatteryController", () => {
     const decision = h.feed(3, { batteryValid: false });
     expect(decision.mode).toBe("fault");
     expect(decision.commandMode).toBe("standby");
+    expect(decision.reason).toContain("indisponible");
+  });
+
+  test("affiche la raison précise d'un défaut batterie", () => {
+    const h = new Harness();
+    const decision = h.feed(3, {
+      fault: true,
+      faultReason: "Batterie: gridState=0, SOC minimum (20%)",
+    });
+    expect(decision.mode).toBe("fault");
+    expect(decision.commandMode).toBe("standby");
+    expect(decision.reason).toContain("gridState=0");
+    expect(decision.reason).toContain("SOC minimum");
   });
 
   test("évite le basculement décharge -> charge avant le cooldown", () => {

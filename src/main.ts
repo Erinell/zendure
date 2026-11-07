@@ -26,6 +26,42 @@ function emptySensor<T>(): SensorState<T> {
   return { value: null, fetchedAt: 0, lastError: null, consecutiveErrors: 0 };
 }
 
+/**
+ * Détaille l'état anormal de la batterie sans message générique.
+ * Exemple : "Batterie: gridState=0, SOC minimum (20%)".
+ */
+function describeBatteryFault(snapshot: BatterySnapshot | null): string | null {
+  if (!snapshot) return null;
+  const details: string[] = [];
+  if (snapshot.faultLevel > 0) details.push(`faultLevel=${snapshot.faultLevel}`);
+  if (snapshot.isError > 0) details.push(`is_error=${snapshot.isError}`);
+  if (!snapshot.dataReady) details.push("dataReady=0");
+  if (snapshot.gridState !== 1) details.push(`gridState=${snapshot.gridState}`);
+  if (snapshot.socLimit > 0) details.push(`socLimit=${snapshot.socLimit}`);
+  if (snapshot.socPercent < CONFIG.battery.minSocPercent) {
+    details.push(`SOC sous le seuil (${snapshot.socPercent}% < ${CONFIG.battery.minSocPercent}%)`);
+  } else if (snapshot.socPercent <= CONFIG.battery.minSocPercent) {
+    details.push(`SOC minimum (${snapshot.socPercent}%)`);
+  }
+  return details.length > 0 ? `Batterie: ${details.join(", ")}` : null;
+}
+
+/** Log de démarrage : distingue un vrai défaut d'un simple SOC minimum. */
+function logBatteryStartupState(snapshot: BatterySnapshot): void {
+  const lowSoc = snapshot.socPercent <= CONFIG.battery.minSocPercent;
+  if (snapshot.fault) {
+    const reason = describeBatteryFault(snapshot) ?? "Batterie: état anormal non précisé";
+    log.warn(`${reason} — contrôle en standby tant que cet état persiste.`);
+  } else if (lowSoc) {
+    const threshold = CONFIG.battery.minSocPercent;
+    const label =
+      snapshot.socPercent < threshold
+        ? `Batterie sous le seuil SOC (${snapshot.socPercent}% < ${threshold}%)`
+        : `Batterie au SOC minimum (${snapshot.socPercent}%)`;
+    log.info(`${label} — décharge terminée ; la charge PV reprendra si surplus.`);
+  }
+}
+
 function validateConfig(): void {
   const { battery, control, linky, solar, database } = CONFIG;
 
@@ -206,11 +242,10 @@ async function main(): Promise<void> {
       `Batterie détectée: ${p.socPercent}% | acMode=${p.acMode} | ` +
         `limites ${p.inputLimitW}/${p.outputLimitW} W | ` +
         `matériel charge max ${p.hardwareMaxChargeW} W, sortie max ${p.hardwareMaxDischargeW} W | ` +
-        `gridState=${p.gridState} | dataReady=${p.dataReady} | fault=${p.fault}`,
+        `gridState=${p.gridState} | dataReady=${p.dataReady} | fault=${p.fault} | ` +
+        `faultLevel=${p.faultLevel} | is_error=${p.isError} | socLimit=${p.socLimit}`,
     );
-    if (p.fault) {
-      log.warn("La batterie signale un défaut ou n'est pas connectée au réseau : le contrôle restera en standby.");
-    }
+    logBatteryStartupState(p);
 
     if (!dryRun) {
       // Première commande : standby persistant, pour effacer un éventuel état laissé
@@ -359,6 +394,7 @@ async function main(): Promise<void> {
           actualOutputW: batteryValue?.outputW ?? 0,
           actualInputW: batteryValue?.inputW ?? 0,
           fault: batteryValue?.fault ?? false,
+          faultReason: describeBatteryFault(batteryValue),
         });
         lastDecision = decision;
 
