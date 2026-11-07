@@ -175,7 +175,7 @@ export interface HistoryDatabaseConfig {
   database: string;
   user: string;
   password: string;
-  /** Les trois tables sont alimentées toutes les 10 s. */
+  /** Les tables de visualisation sont alimentées toutes les 10 s. */
   intervalMs: number;
   /** Purge des lignes plus vieilles que cette durée. */
   retentionHours: number;
@@ -365,6 +365,8 @@ export interface HistoryValues {
   consoW: number | null;
   powerW: number | null;
   solarW: number | null;
+  /** Niveau de charge de la batterie (%) pour la table `soc`. */
+  socPercent: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

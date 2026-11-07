@@ -455,6 +455,10 @@ async function main(): Promise<void> {
             solarValue && Date.now() - solarState.fetchedAt <= CONFIG.solar.maxDataAgeMs
               ? solarValue.productionW
               : null,
+          socPercent:
+            batteryValue && Date.now() - batteryState.fetchedAt <= 30_000
+              ? batteryValue.socPercent
+              : null,
         };
         await historyDb.log(values);
         await Bun.sleep(Math.max(0, CONFIG.database.history.intervalMs - (Date.now() - startedAt)));

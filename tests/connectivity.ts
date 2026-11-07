@@ -93,7 +93,7 @@ async function main(): Promise<void> {
         `@${CONFIG.database.history.host}:${CONFIG.database.history.port}/${CONFIG.database.history.database}`,
       { connectionTimeout: CONFIG.database.history.connectTimeoutMs },
     );
-    for (const table of ["conso", "power", "solar"]) {
+    for (const table of ["conso", "power", "solar", "soc"]) {
       const rows = await sql`SELECT COUNT(*) AS n, MAX(Date) AS lastDate FROM ${sql(table)}`;
       log.info(`Table ${table}`, rows[0]);
     }

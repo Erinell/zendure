@@ -48,7 +48,7 @@ async function main(): Promise<void> {
     log.info("--- Base batteries : dernières 24 h ---");
     // Les dates sont stockées en heure locale : on utilise la même convention.
     const cutoff24h = formatLocalDateTime(new Date(Date.now() - 24 * 3_600_000));
-    for (const table of ["conso", "power", "solar"]) {
+    for (const table of ["conso", "power", "solar", "soc"]) {
       const stats = await batterySql`
         SELECT COUNT(*) AS n,
                MIN(Date) AS dmin,
@@ -126,9 +126,11 @@ async function main(): Promise<void> {
     const lastPower = await batterySql`SELECT Date, Valeur FROM power ORDER BY Date DESC LIMIT 8`;
     const lastSolar = await batterySql`SELECT Date, Valeur FROM solar ORDER BY Date DESC LIMIT 8`;
     const lastConso = await batterySql`SELECT Date, Valeur FROM conso ORDER BY Date DESC LIMIT 8`;
+    const lastSoc = await batterySql`SELECT Date, Valeur FROM soc ORDER BY Date DESC LIMIT 8`;
     log.info("Dernières valeurs batterie (négatif = charge, positif = décharge)", lastPower);
     log.info("Dernières valeurs solaires", lastSolar);
     log.info("Dernières valeurs Linky (SINSTS2, phase 2)", lastConso);
+    log.info("Dernières valeurs SOC batterie (%)", lastSoc);
   } finally {
     await batterySql.close();
   }

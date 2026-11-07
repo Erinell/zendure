@@ -133,6 +133,7 @@ async function takeSample(): Promise<Sample> {
       consoW: linkySnapshot.logW,
       powerW: s.signed,
       solarW: s.pv,
+      socPercent: s.soc,
     });
   }
 

@@ -18,7 +18,8 @@ export function formatLocalDateTime(date: Date): string {
  * Tables :
  *  - conso (Date, Valeur) : puissance Linky de la phase 2 (SINSTS2), en W ;
  *  - power (Date, Valeur) : batterie, négatif = charge, positif = décharge ;
- *  - solar (Date, Valeur) : production PV totale (wNow), en W.
+ *  - solar (Date, Valeur) : production PV totale (wNow), en W ;
+ *  - soc (Date, Valeur) : niveau de charge de la batterie, en %.
  *
  * Une ligne par table toutes les 10 s, purge au-delà de 24 h.
  * En cas d'erreur, le contrôle continue : la visualisation n'est pas critique.
@@ -41,7 +42,7 @@ export class HistoryDatabase {
     return this.sql;
   }
 
-  /** Vérifie que la base et les trois tables sont accessibles. Ne bloque pas le démarrage. */
+  /** Vérifie que la base et les tables de visualisation sont accessibles. Ne bloque pas le démarrage. */
   async check(): Promise<boolean> {
     if (!this.config.enabled) return true;
     try {
@@ -49,7 +50,8 @@ export class HistoryDatabase {
       await sql`SELECT 1 AS ok FROM conso LIMIT 1`;
       await sql`SELECT 1 AS ok FROM power LIMIT 1`;
       await sql`SELECT 1 AS ok FROM solar LIMIT 1`;
-      log.info(`Base ${this.config.database} accessible (conso, power, solar).`);
+      await sql`SELECT 1 AS ok FROM soc LIMIT 1`;
+      log.info(`Base ${this.config.database} accessible (conso, power, solar, soc).`);
       return true;
     } catch (error) {
       this.reportError("Vérification base de visualisation impossible", error);
@@ -77,6 +79,9 @@ export class HistoryDatabase {
       if (values.solarW !== null) {
         await sql`INSERT INTO solar (Date, Valeur) VALUES (${date}, ${Math.round(values.solarW)})`;
       }
+      if (values.socPercent !== null) {
+        await sql`INSERT INTO soc (Date, Valeur) VALUES (${date}, ${Math.round(values.socPercent)})`;
+      }
 
       if (Date.now() - this.lastCleanupAt >= this.config.cleanupIntervalMs) {
         await this.cleanup(sql);
@@ -97,6 +102,7 @@ export class HistoryDatabase {
     await sql`DELETE FROM conso WHERE Date < ${cutoff}`;
     await sql`DELETE FROM power WHERE Date < ${cutoff}`;
     await sql`DELETE FROM solar WHERE Date < ${cutoff}`;
+    await sql`DELETE FROM soc WHERE Date < ${cutoff}`;
     log.debug(`Purge des données de plus de ${this.config.retentionHours} h effectuée.`);
   }
 

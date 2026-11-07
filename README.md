@@ -220,21 +220,23 @@ Conséquence : la régulation **ne doit pas** réagir toutes les secondes. Les i
 
 ## 6. Base de données de visualisation
 
-La base `batteries` est alimentée toutes les **10 s**. Le programme ne modifie pas le schéma existant.
+La base `batteries` est alimentée toutes les **10 s**. La table `soc` est fournie dans **`database/schema.sql`** (`CREATE TABLE IF NOT EXISTS`) ; le programme ne modifie pas les trois tables existantes.
 
 | Table | Contenu | Convention |
 |---|---|---|
 | `conso` | puissance Linky **phase 2** `SINSTS2` | W, phase batterie + panneaux |
 | `power` | puissance AC de la batterie | **négatif = charge**, **positif = décharge** |
 | `solar` | production PV totale `wNow` | W |
+| `soc` | niveau de charge de la batterie | **% (0-100)** |
 
 Exemple de valeurs :
 
 - `power = -500` : la batterie charge à 500 W ;
 - `power = +300` : la batterie décharge à 300 W ;
-- `power = 0` : standby.
+- `power = 0` : standby ;
+- `soc = 45` : la batterie est à 45 %.
 
-Les lignes de plus de **24 h** sont supprimées automatiquement (toutes les 10 min). Les colonnes `Date` sont écrites en **heure locale du Raspberry Pi** : vérifier le fuseau horaire (`timedatectl`, Europe/Paris) pour que la visualisation soit cohérente.
+Les lignes des quatre tables de plus de **24 h** sont supprimées automatiquement (toutes les 10 min). Les colonnes `Date` sont écrites en **heure locale du Raspberry Pi** : vérifier le fuseau horaire (`timedatectl`, Europe/Paris) pour que la visualisation soit cohérente.
 
 > La régulation et la table `conso` utilisent toutes les deux **`SINSTS2` (phase 2)**. Le total des trois phases (`SINSTS`) n'est pas stocké dans `conso` ; il reste disponible dans les logs de debug et le fichier local JSONL, si activé.
 
@@ -406,6 +408,7 @@ src/devices/battery.ts        client zenSDK (report / write / standby / SOC)
 src/devices/linky.ts          client Linky (SINSTS, SINSTS2…)
 src/devices/solar.ts          client Envoy (wNow)
 src/database.ts               écriture MySQL 10 s + purge 24 h
+database/schema.sql           création de la table soc
 src/local-history.ts          JSONL local 1 s (optionnel)
 src/http.ts                   fetch JSON avec timeout
 src/logger.ts                 logs console
