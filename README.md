@@ -187,11 +187,13 @@ Le programme combine plusieurs protections :
 ### 4.4 Sécurité
 
 - Lecture de la batterie refusée si le **numéro de série** ne correspond pas.
-- `faultLevel`, `is_error`, `dataReady` ou `gridState` anormal → **standby**.
+- `faultLevel >= 2`, `is_error`, `dataReady=0` ou `gridState != 1` → **standby**.
+- **Protection SOC bas** : `faultLevel=1` avec `socLimit>0` près du SOC minimum n'est **pas** un défaut bloquant. La décharge reste coupée, mais la **charge PV est autorisée** pour remonter le SOC. La protection est considérée non bloquante jusqu'à `SOC minimum + 5 %` pour permettre la récupération.
 - Les logs distinguent clairement l'état de la batterie :
   - `SOC minimum atteint (20%) — décharge terminée` ou `SOC sous le seuil (18% < 20%)` : fin de décharge normale ;
+  - `protection SOC bas non bloquante: faultLevel=1, socLimit=2; charge PV autorisée` : protection basse normale, charge autorisée ;
   - `Batterie: gridState=0, SOC minimum (20%)` : batterie hors réseau à son minimum, standby ;
-  - `Batterie: faultLevel=...` ou `is_error=...` : défaut matériel ou erreur interne ;
+  - `Batterie: faultLevel=...` (≥ 2) ou `is_error=...` : défaut matériel ou erreur interne ;
   - `Batterie: dataReady=0` : données non prêtes, attente avant reprise.
 - Linky ou batterie sans réponse depuis **15 s** → **standby**.
 - Retour des données → attente de 10 s avant de reprendre.

@@ -22,10 +22,11 @@ async function main(): Promise<void> {
   try {
     const { snapshot: p, report } = await battery.getReport();
     check(report.sn === CONFIG.battery.serialNumber, "Numéro de série batterie (BATTERY_SERIAL)");
-    check(!p.fault, "Batterie sans défaut", {
+    check(!p.fault, "Batterie sans défaut bloquant", {
       fault: p.fault,
       faultLevel: p.faultLevel,
       isError: p.isError,
+      lowSocProtection: p.lowSocProtection,
       gridState: p.gridState,
       dataReady: p.dataReady,
       socLimit: p.socLimit,
@@ -46,6 +47,7 @@ async function main(): Promise<void> {
       packPower: `${p.packPowerW} W`,
       faultLevel: p.faultLevel,
       isError: p.isError,
+      lowSocProtection: p.lowSocProtection,
       gridState: p.gridState,
       dataReady: p.dataReady,
       socLimit: p.socLimit,

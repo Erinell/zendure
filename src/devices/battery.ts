@@ -19,6 +19,50 @@ export interface BatteryReadResult {
   snapshot: BatterySnapshot;
 }
 
+export interface BatteryFaultInput {
+  socPercent: number;
+  faultLevel: number;
+  isError: number;
+  dataReady: boolean;
+  gridState: number;
+  socLimit: number;
+  minSocPercent: number;
+}
+
+export interface BatteryFaultClassification {
+  fault: boolean;
+  lowSocProtection: boolean;
+}
+
+/** Marge au-dessus du SOC minimum pendant laquelle la protection basse reste non bloquante. */
+const LOW_SOC_RECOVERY_MARGIN_PERCENT = 5;
+
+/**
+ * Distingue un vrai défaut d'une protection SOC bas.
+ *
+ * À l'approche du minimum, le firmware peut remonter `faultLevel=1` et
+ * `socLimit=2`. Ce n'est pas un défaut matériel : la décharge doit rester
+ * coupée, mais la charge PV doit être autorisée pour remonter le SOC.
+ * Un `faultLevel >= 2`, `is_error`, `dataReady=0` ou `gridState != 1` reste
+ * bloquant.
+ */
+export function classifyBatteryFault(input: BatteryFaultInput): BatteryFaultClassification {
+  const lowSocProtection =
+    input.faultLevel <= 1 &&
+    input.isError === 0 &&
+    input.socLimit > 0 &&
+    input.socPercent <= input.minSocPercent + LOW_SOC_RECOVERY_MARGIN_PERCENT;
+
+  const fault =
+    input.faultLevel >= 2 ||
+    input.isError > 0 ||
+    !input.dataReady ||
+    input.gridState !== 1 ||
+    (input.faultLevel === 1 && !lowSocProtection);
+
+  return { fault, lowSocProtection };
+}
+
 /** Sous-ensemble des propriétés que le programme est autorisé à écrire. */
 export interface BatteryWritableProperties {
   acMode?: number;
@@ -73,11 +117,20 @@ export class BatteryClient {
     const p = report.properties;
     const soc = finiteNumber(p.electricLevel, "electricLevel");
     const dataReady = numberOr(p.dataReady, 0) === 1;
-    const fault =
-      numberOr(p.faultLevel, 0) > 0 ||
-      numberOr(p.is_error, 0) > 0 ||
-      !dataReady ||
-      numberOr(p.gridState, 0) !== 1;
+    const faultLevel = numberOr(p.faultLevel, 0);
+    const isError = numberOr(p.is_error, 0);
+    const gridState = numberOr(p.gridState, 0);
+    const socLimit = numberOr(p.socLimit, 0);
+    const classification = classifyBatteryFault({
+      socPercent: soc,
+      faultLevel,
+      isError,
+      dataReady,
+      gridState,
+      socLimit,
+      minSocPercent: this.config.minSocPercent,
+    });
+    const fault = classification.fault;
 
     const pack = Array.isArray(report.packData) && report.packData.length > 0 ? report.packData[0] : undefined;
 
@@ -95,11 +148,12 @@ export class BatteryClient {
       minSocRaw: numberOr(p.minSoc, 0),
       socSetRaw: numberOr(p.socSet, 0),
       fault,
-      faultLevel: numberOr(p.faultLevel, 0),
-      isError: numberOr(p.is_error, 0),
-      gridState: numberOr(p.gridState, 0),
+      faultLevel,
+      isError,
+      lowSocProtection: classification.lowSocProtection,
+      gridState,
       dataReady,
-      socLimit: numberOr(p.socLimit, 0),
+      socLimit,
       ts: numberOr(p.ts, 0),
       hardwareMaxChargeW: numberOr(p.chargeMaxLimit, this.config.hardwareMaxChargePowerW),
       hardwareMaxDischargeW: numberOr(p.inverseMaxPower, this.config.hardwareMaxDischargePowerW),

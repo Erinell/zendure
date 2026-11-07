@@ -299,6 +299,8 @@ export interface BatterySnapshot {
   fault: boolean;
   faultLevel: number;
   isError: number;
+  /** Vrai si faultLevel=1 + socLimit>0 près du SOC minimum : protection basse non bloquante. */
+  lowSocProtection: boolean;
   gridState: number;
   dataReady: boolean;
   socLimit: number;

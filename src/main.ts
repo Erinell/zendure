@@ -58,7 +58,10 @@ function logBatteryStartupState(snapshot: BatterySnapshot): void {
       snapshot.socPercent < threshold
         ? `Batterie sous le seuil SOC (${snapshot.socPercent}% < ${threshold}%)`
         : `Batterie au SOC minimum (${snapshot.socPercent}%)`;
-    log.info(`${label} — décharge terminée ; la charge PV reprendra si surplus.`);
+    const protection = snapshot.lowSocProtection
+      ? ` (protection SOC bas non bloquante: faultLevel=${snapshot.faultLevel}, socLimit=${snapshot.socLimit}; charge PV autorisée)`
+      : "";
+    log.info(`${label} — décharge terminée ; la charge PV reprendra si surplus${protection}.`);
   }
 }
 
@@ -242,8 +245,9 @@ async function main(): Promise<void> {
       `Batterie détectée: ${p.socPercent}% | acMode=${p.acMode} | ` +
         `limites ${p.inputLimitW}/${p.outputLimitW} W | ` +
         `matériel charge max ${p.hardwareMaxChargeW} W, sortie max ${p.hardwareMaxDischargeW} W | ` +
-        `gridState=${p.gridState} | dataReady=${p.dataReady} | fault=${p.fault} | ` +
-        `faultLevel=${p.faultLevel} | is_error=${p.isError} | socLimit=${p.socLimit}`,
+        `gridState=${p.gridState} | dataReady=${p.dataReady} | défautBloquant=${p.fault} | ` +
+        `faultLevel=${p.faultLevel} | is_error=${p.isError} | socLimit=${p.socLimit} | ` +
+        `protectionSocBas=${p.lowSocProtection}`,
     );
     logBatteryStartupState(p);
 
