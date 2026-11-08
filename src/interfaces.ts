@@ -114,6 +114,27 @@ export interface ChargeControlConfig {
   cooldownAfterMs: number;
 }
 
+export type DischargeScheduleMode = "block" | "allow";
+
+export interface DischargeScheduleWindow {
+  /** Heure de début au format HH:MM. */
+  start: string;
+  /** Heure de fin au format HH:MM (exclue). */
+  end: string;
+}
+
+export interface DischargeScheduleConfig {
+  /** Active la restriction horaire de décharge. */
+  enabled: boolean;
+  /**
+   * "block" : les plages bloquent la décharge (décharge autorisée en dehors).
+   * "allow" : la décharge est autorisée uniquement dans les plages.
+   */
+  mode: DischargeScheduleMode;
+  /** Liste des plages. Une liste vide ne restreint rien. */
+  windows: DischargeScheduleWindow[];
+}
+
 export interface DischargeControlConfig {
   /** SINSTS2 doit dépasser cette valeur pour démarrer la décharge. */
   startAboveGridW: number;
@@ -143,6 +164,8 @@ export interface DischargeControlConfig {
   stopDelayMs: number;
   /** Après un arrêt de décharge, délai avant d'autoriser une charge (anti-oscillation). */
   cooldownAfterMs: number;
+  /** Plages horaires qui limitent la décharge. La charge n'est pas affectée. */
+  schedule: DischargeScheduleConfig;
 }
 
 export interface ControlConfig {
@@ -406,4 +429,6 @@ export interface ControlDecision {
   estimatedLoadW: number | null;
   surplusW: number | null;
   availableLoadW: number | null;
+  /** Indique si la décharge est autorisée à l'instant courant par la plage horaire. */
+  dischargeAllowed: boolean;
 }

@@ -6,6 +6,7 @@ import { LinkyClient } from "./devices/linky";
 import { SolarClient } from "./devices/solar";
 import { LocalHistory } from "./local-history";
 import { errorMessage, log, setLogLevel } from "./logger";
+import { describeDischargeSchedule, validateDischargeSchedule } from "./schedule";
 import type {
   BatterySnapshot,
   CommandMode,
@@ -95,6 +96,8 @@ function validateConfig(): void {
   if (database.history.retentionHours <= 0) {
     throw new Error("database.history.retentionHours doit être positif");
   }
+
+  validateDischargeSchedule(control.discharge.schedule);
 }
 
 async function main(): Promise<void> {
@@ -126,6 +129,10 @@ async function main(): Promise<void> {
   );
   log.info(`Linky configuré (URL masquée; régulation ${CONFIG.linky.controlField})`);
   log.info("Solaire configuré (URL masquée).");
+  log.info(
+    `Plage de décharge: ${describeDischargeSchedule(CONFIG.control.discharge.schedule)} ` +
+      "(la charge n'est pas affectée).",
+  );
   if (dryRun) {
     log.warn("MODE DRY-RUN : lecture seule, aucune commande ne sera envoyée à la batterie.");
   }
@@ -365,6 +372,7 @@ async function main(): Promise<void> {
       let lastCommandOk = true;
       let lastDecisionSignature = "";
       let lastStatusAt = 0;
+      let lastDischargeAllowed: boolean | null = null;
 
       while (running) {
         const tickStartedAt = Date.now();
@@ -401,6 +409,17 @@ async function main(): Promise<void> {
           faultReason: describeBatteryFault(batteryValue),
         });
         lastDecision = decision;
+
+        if (
+          lastDischargeAllowed !== null &&
+          decision.dischargeAllowed !== lastDischargeAllowed
+        ) {
+          log.info(
+            `[PLAGE] Décharge ${decision.dischargeAllowed ? "autorisée" : "bloquée"} ` +
+              "par la plage horaire (la charge n'est pas affectée).",
+          );
+        }
+        lastDischargeAllowed = decision.dischargeAllowed;
 
         if (decision.commandMode !== lastCommand.mode || decision.targetPowerW !== lastCommand.powerW) {
           const signature = `${decision.mode}|${decision.commandMode}|${decision.targetPowerW}`;
@@ -467,6 +486,7 @@ async function main(): Promise<void> {
             decision.estimatedLoadW !== null ? `charge2≈${Math.round(decision.estimatedLoadW)} W` : "charge2 ?";
           log.info(
             `[ÉTAT] ${gridText} | ${pvText} | ${socText} | ${batteryText} | ${loadText} | ` +
+              `décharge=${decision.dischargeAllowed ? "autorisée" : "bloquée"} | ` +
               `mode=${decision.mode} cible=${decision.targetPowerW} W — ${decision.reason}`,
           );
         }

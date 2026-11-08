@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { CONFIG } from "../config";
 import { BatteryController } from "../src/controller";
-import type { ControlConfig, ControlDecision, ControlInput } from "../src/interfaces";
+import type {
+  ControlConfig,
+  ControlDecision,
+  ControlInput,
+  DischargeScheduleConfig,
+} from "../src/interfaces";
 
 /**
  * Configuration accélérée pour les tests : les délais réels (15-30 s) sont
@@ -41,9 +46,9 @@ class Harness {
   now = 1_000_000;
   last!: ControlDecision;
 
-  constructor() {
+  constructor(controlConfig: ControlConfig = testControlConfig) {
     this.controller = new BatteryController({
-      config: testControlConfig,
+      config: controlConfig,
       minSocPercent: 20,
       maxSocPercent: 100,
       maxChargeW: 1000,
@@ -72,6 +77,20 @@ class Harness {
     }
     return this.last;
   }
+}
+
+function withDischargeSchedule(schedule: DischargeScheduleConfig): ControlConfig {
+  return {
+    ...testControlConfig,
+    discharge: {
+      ...testControlConfig.discharge,
+      schedule,
+    },
+  };
+}
+
+function localTime(hour: number, minute = 0, day = 1): number {
+  return new Date(2026, 0, day, hour, minute, 0).getTime();
 }
 
 describe("BatteryController", () => {
@@ -202,5 +221,41 @@ describe("BatteryController", () => {
     const h = new Harness();
     const decision = h.feed(30, { gridW: 0, solarW: 50, socPercent: 50 });
     expect(decision.mode).not.toBe("charging");
+  });
+
+  test("bloque la décharge hors plage et l'autorise dans la plage", () => {
+    const h = new Harness(
+      withDischargeSchedule({
+        enabled: true,
+        mode: "block",
+        windows: [{ start: "22:00", end: "06:00" }],
+      }),
+    );
+
+    h.now = localTime(23, 0, 1);
+    const blocked = h.feed(30, { gridW: 500, solarW: 0, socPercent: 50 });
+    expect(blocked.dischargeAllowed).toBe(false);
+    expect(blocked.mode).not.toBe("discharging");
+    expect(blocked.reason).toContain("plage horaire");
+
+    h.now = localTime(6, 0, 2);
+    const allowed = h.feed(30, { gridW: 500, solarW: 0, socPercent: 50 });
+    expect(allowed.dischargeAllowed).toBe(true);
+    expect(allowed.mode).toBe("discharging");
+  });
+
+  test("la plage de décharge ne bloque pas la charge", () => {
+    const h = new Harness(
+      withDischargeSchedule({
+        enabled: true,
+        mode: "block",
+        windows: [{ start: "22:00", end: "06:00" }],
+      }),
+    );
+
+    h.now = localTime(23, 0, 1);
+    const decision = h.feed(30, { gridW: 0, solarW: 800, socPercent: 50 });
+    expect(decision.dischargeAllowed).toBe(false);
+    expect(decision.mode).toBe("charging");
   });
 });

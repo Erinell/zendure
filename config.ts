@@ -106,6 +106,15 @@ export const CONFIG: AppConfig = {
       minPowerW: 30, // puissance minimale de décharge (W)
       stopDelayMs: 60_000, // durée à zéro avant de repasser en veille (ms)
       cooldownAfterMs: 120_000, // délai avant d'autoriser une charge après décharge (ms)
+
+      schedule: { // plages horaires de décharge (la charge n'est jamais affectée)
+        enabled: true, // activer la restriction horaire
+        mode: "block", // "block" = ces plages bloquent la décharge ; "allow" = décharge autorisée uniquement dans ces plages
+        windows: [
+          // { start: "22:00", end: "06:00" },
+          // { start: "12:00", end: "14:00" },
+        ],
+      },
     },
   },
 

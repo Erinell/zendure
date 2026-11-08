@@ -106,6 +106,7 @@ Les paramètres principaux :
 | `control.discharge.rampDownStepW` | 50 | Pas de baisse quand `SINSTS2 = 0` |
 | `control.discharge.zeroHoldMs` | 20000 | Attente avant de baisser à `SINSTS2 = 0` |
 | `control.discharge.cooldownAfterMs` | 120000 | Délai décharge → charge (anti-oscillation) |
+| `control.discharge.schedule` | `{ enabled, mode, windows }` | Plages horaires qui limitent la décharge (la charge n'est pas affectée) |
 | `database.history.intervalMs` | 10000 | Écriture MySQL |
 | `database.history.retentionHours` | 24 | Purge |
 | `localHistory.enabled` | false | JSONL local 1 s (diagnostic, usure SD) |
@@ -202,6 +203,49 @@ Le programme combine plusieurs protections :
 - **Arrêt** : standby persistant, jusqu'à 3 tentatives, vérification des limites à zéro.
 - Si le processus est tué brutalement (`SIGKILL`, coupure), la batterie peut conserver la dernière consigne en RAM. Le service systemd avec `Restart=always` redémarre le programme, qui renvoie immédiatement un standby. Pour une protection maximale, alimenter le Raspberry Pi par onduleur.
 
+### 4.5 Plages horaires de décharge
+
+La décharge peut être limitée par une ou plusieurs plages horaires. **La charge n'est jamais bloquée par ces plages** : le surplus PV peut toujours charger la batterie.
+
+Dans `config.ts`, section `control.discharge` :
+
+```ts
+schedule: {
+  enabled: true,
+  mode: "block",
+  windows: [
+    { start: "22:00", end: "06:00" }, // décharge bloquée la nuit
+    { start: "12:00", end: "14:00" },
+  ],
+},
+```
+
+Deux modes :
+
+| Mode | Comportement |
+|---|---|
+| `"block"` | les plages **bloquent** la décharge ; elle est autorisée en dehors |
+| `"allow"` | la décharge est autorisée **uniquement** dans les plages |
+
+Règles :
+
+- `enabled: false` désactive la restriction ;
+- une liste `windows` vide ne restreint rien ;
+- une plage `22:00` → `06:00` traverse minuit ;
+- l'heure de fin est exclue : `06:00` signifie que le blocage s'arrête à 06:00 ;
+- `start === end` représente une plage de 24 h ;
+- les heures sont évaluées en **heure locale du Raspberry Pi** (`timedatectl`) ;
+- si la décharge est active quand une plage de blocage commence, elle est coupée ;
+- si une plage se termine, la décharge peut reprendre selon les conditions habituelles (`SINSTS2`, SOC, cooldowns). Le cooldown anti-oscillation après une décharge reste actif, mais il est indépendant de la plage horaire.
+
+L'état est visible dans les logs :
+
+```text
+décharge=autorisée
+décharge=bloquée
+Décharge bloquée par la plage horaire
+```
+
 ---
 
 ## 5. Timings mesurés sur le matériel
@@ -269,7 +313,7 @@ Vérifie la batterie, le Linky, le solaire, la base `batteries` et la base `pann
 bun test
 ```
 
-14 tests couvrent : charge/décharge, plafonds 300 W/1 000 W, SOC 20/100 %, absence de charge la nuit, retour arrière sur import, cooldowns, anti-oscillation, données invalides.
+40 tests couvrent : charge/décharge, plafonds 300 W/1 000 W, SOC 20/100 %, absence de charge la nuit, retour arrière sur import, cooldowns, anti-oscillation, classification des défauts batterie, plages horaires de décharge, données invalides.
 
 ### 7.3 Timing batterie (réel, ~3,5 min)
 
@@ -411,6 +455,7 @@ config.ts                     valeurs non sensibles, commentaires en ligne
 src/interfaces.ts             toutes les interfaces et types partagés
 src/main.ts                   démarrage, boucles de lecture, commandes, arrêt
 src/controller.ts             machine à états et régulation (sans I/O)
+src/schedule.ts               plages horaires de décharge
 src/devices/battery.ts        client zenSDK (report / write / standby / SOC)
 src/devices/linky.ts          client Linky (SINSTS, SINSTS2…)
 src/devices/solar.ts          client Envoy (wNow)
@@ -423,6 +468,8 @@ tests/connectivity.ts         vérification lecture seule
 tests/timing.ts               mesure des latences réelles
 tests/history.ts              analyse des historiques (lecture seule)
 tests/controller.test.ts      tests unitaires du contrôleur
+tests/schedule.test.ts        tests des plages horaires
+tests/battery-fault.test.ts   tests de classification des défauts batterie
 tests/main-smoke.ts           test de bout en bout + standby
 systemd/zendure.service.example
 data/                         historiques locaux (ignoré par git)
@@ -454,7 +501,7 @@ data/                         historiques locaux (ignoré par git)
 | Panneaux `?` | Vérifier `SOLAR_URL` dans `.env` et `production[0].wNow` |
 | Base MySQL inaccessible | Vérifier `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD` dans `.env` et la base `batteries` |
 | La batterie ne charge pas | Vérifier `SINSTS2=0` pendant 20 s, PV ≥ 80 W, SOC < 100 %, pas de cooldown |
-| La batterie ne décharge pas | Vérifier `SINSTS2 ≥ 100 W` pendant 15 s, SOC > 20 %, pas de cooldown |
+| La batterie ne décharge pas | Vérifier `SINSTS2 ≥ 100 W` pendant 15 s, SOC > 20 %, pas de cooldown, et `control.discharge.schedule` / heure locale |
 | Charge qui oscille | Augmenter `settleAfterBackoffMs`, réduire `rampUpStepW`, augmenter `backoffAboveGridW` |
 | Décharge qui oscille | Augmenter `zeroHoldMs`/`cooldownAfterMs`, réduire `rampDownStepW` |
 | Le standby final n'est pas confirmé | Le programme réessaie 3 fois ; vérifier l'API batterie et les logs |

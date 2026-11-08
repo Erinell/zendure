@@ -5,6 +5,7 @@ import type {
   ControlInput,
   ControlMode,
 } from "./interfaces";
+import { isDischargeAllowed } from "./schedule";
 
 export interface ControllerOptions {
   config: ControlConfig;
@@ -50,6 +51,7 @@ export class BatteryController {
 
   private lastSurplusW: number | null = null;
   private lastAvailableLoadW: number | null = null;
+  private lastDischargeAllowed = true;
 
   constructor(private readonly options: ControllerOptions) {}
 
@@ -57,6 +59,11 @@ export class BatteryController {
     const now = input.now;
     const dt = this.lastUpdateAt === 0 ? 0 : Math.max(0, now - this.lastUpdateAt);
     this.lastUpdateAt = now;
+    const dischargeAllowed = isDischargeAllowed(
+      now,
+      this.options.config.discharge.schedule,
+    );
+    this.lastDischargeAllowed = dischargeAllowed;
 
     const gridOk = input.gridValid && input.gridW !== null;
     const batteryOk = input.batteryValid && input.socPercent !== null && !input.fault;
@@ -96,15 +103,21 @@ export class BatteryController {
       this.lastChargeEndAt = now;
     }
 
+    // La plage horaire ne concerne que la décharge. La charge continue normalement.
+    if (this.mode === "discharging" && !dischargeAllowed) {
+      this.transitionTo("idle", now, "Décharge bloquée par la plage horaire");
+      this.lastDischargeEndAt = now;
+    }
+
     switch (this.mode) {
       case "idle":
-        this.updateIdle(input, now, soc);
+        this.updateIdle(input, now, soc, dischargeAllowed);
         break;
       case "charging":
         this.updateCharging(input, now, soc);
         break;
       case "discharging":
-        this.updateDischarging(input, now, soc);
+        this.updateDischarging(input, now, soc, dischargeAllowed);
         break;
       case "fault":
         break;
@@ -175,7 +188,12 @@ export class BatteryController {
   // Machine à états
   // ─────────────────────────────────────────────────────────────────────────
 
-  private updateIdle(input: ControlInput, now: number, soc: number): void {
+  private updateIdle(
+    input: ControlInput,
+    now: number,
+    soc: number,
+    dischargeAllowed: boolean,
+  ): void {
     const grid = this.gridEmaW!;
     const { charge, discharge } = this.options.config;
 
@@ -203,6 +221,7 @@ export class BatteryController {
     }
 
     const canDischarge =
+      dischargeAllowed &&
       soc > this.options.minSocPercent &&
       this.gridHighSince !== null &&
       now - this.gridHighSince >= discharge.startDelayMs &&
@@ -214,10 +233,13 @@ export class BatteryController {
     }
 
     this.targetW = 0;
-    this.reason =
-      soc <= this.options.minSocPercent
-        ? `SOC minimum atteint (${soc}%) — veille, charge PV possible si surplus`
-        : `Veille (S2=${Math.round(grid)} W, SOC=${soc}%)`;
+    if (soc <= this.options.minSocPercent) {
+      this.reason = `SOC minimum atteint (${soc}%) — veille, charge PV possible si surplus`;
+    } else if (!dischargeAllowed) {
+      this.reason = "Décharge bloquée par la plage horaire";
+    } else {
+      this.reason = `Veille (S2=${Math.round(grid)} W, SOC=${soc}%)`;
+    }
   }
 
   private startCharging(input: ControlInput, now: number): void {
@@ -338,8 +360,19 @@ export class BatteryController {
     }
   }
 
-  private updateDischarging(input: ControlInput, now: number, soc: number): void {
+  private updateDischarging(
+    input: ControlInput,
+    now: number,
+    soc: number,
+    dischargeAllowed: boolean,
+  ): void {
     const { discharge } = this.options.config;
+
+    if (!dischargeAllowed) {
+      this.transitionTo("idle", now, "Décharge bloquée par la plage horaire");
+      this.lastDischargeEndAt = now;
+      return;
+    }
 
     if (soc <= this.options.minSocPercent) {
       this.transitionTo("idle", now, `SOC minimum atteint (${soc}%) — décharge terminée`);
@@ -481,6 +514,7 @@ export class BatteryController {
       estimatedLoadW: this.loadEmaW,
       surplusW: this.lastSurplusW,
       availableLoadW: this.lastAvailableLoadW,
+      dischargeAllowed: this.lastDischargeAllowed,
     };
   }
 }
