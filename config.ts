@@ -89,6 +89,15 @@ export const CONFIG: AppConfig = {
       abortDelayMs: 30_000, // durée de l'import excessif avant arrêt (ms)
       solarStopDelayMs: 30_000, // durée de PV insuffisant avant arrêt (ms)
       cooldownAfterMs: 60_000, // délai avant d'autoriser une décharge après charge (ms)
+
+      schedule: { // recharge manuelle forcée : bypass de la régulation pendant les plages
+        enabled: false, // activer la recharge forcée
+        power: 500, // puissance de charge forcée (W), limitée par maxChargePowerW
+        windows: [
+          // Ajouter/enlever des plages ici. Exemple : recharge forcée de 22:00 à 23:00.
+          // { start: "22:00", end: "23:00" },
+        ],
+      },
     },
 
     discharge: { // décharge lissée, plafonnée à 300 W

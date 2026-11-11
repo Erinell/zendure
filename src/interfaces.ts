@@ -112,16 +112,22 @@ export interface ChargeControlConfig {
   solarStopDelayMs: number;
   /** Après un arrêt de charge, délai avant d'autoriser une décharge. */
   cooldownAfterMs: number;
+  /** Recharge manuelle forcée : bypass de la régulation pendant les plages. */
+  schedule: ChargeScheduleConfig;
 }
 
 export type DischargeScheduleMode = "block" | "allow";
 
-export interface DischargeScheduleWindow {
+/** Plage horaire locale au format HH:MM. La fin est exclue. */
+export interface TimeWindow {
   /** Heure de début au format HH:MM. */
   start: string;
   /** Heure de fin au format HH:MM (exclue). */
   end: string;
 }
+
+/** Ancien nom conservé pour la lisibilité côté décharge. */
+export type DischargeScheduleWindow = TimeWindow;
 
 export interface DischargeScheduleConfig {
   /** Active la restriction horaire de décharge. */
@@ -132,7 +138,16 @@ export interface DischargeScheduleConfig {
    */
   mode: DischargeScheduleMode;
   /** Liste des plages. Une liste vide ne restreint rien. */
-  windows: DischargeScheduleWindow[];
+  windows: TimeWindow[];
+}
+
+export interface ChargeScheduleConfig {
+  /** Active la recharge manuelle forcée. */
+  enabled: boolean;
+  /** Puissance de charge forcée en W. */
+  power: number;
+  /** Plages pendant lesquelles la charge forcée est active. */
+  windows: TimeWindow[];
 }
 
 export interface DischargeControlConfig {
@@ -431,4 +446,6 @@ export interface ControlDecision {
   availableLoadW: number | null;
   /** Indique si la décharge est autorisée à l'instant courant par la plage horaire. */
   dischargeAllowed: boolean;
+  /** Indique si une recharge manuelle forcée est active. */
+  chargeForced: boolean;
 }

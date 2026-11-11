@@ -6,7 +6,12 @@ import { LinkyClient } from "./devices/linky";
 import { SolarClient } from "./devices/solar";
 import { LocalHistory } from "./local-history";
 import { errorMessage, log, setLogLevel } from "./logger";
-import { describeDischargeSchedule, validateDischargeSchedule } from "./schedule";
+import {
+  describeChargeSchedule,
+  describeDischargeSchedule,
+  validateChargeSchedule,
+  validateDischargeSchedule,
+} from "./schedule";
 import type {
   BatterySnapshot,
   CommandMode,
@@ -98,6 +103,7 @@ function validateConfig(): void {
   }
 
   validateDischargeSchedule(control.discharge.schedule);
+  validateChargeSchedule(control.charge.schedule);
 }
 
 async function main(): Promise<void> {
@@ -131,7 +137,11 @@ async function main(): Promise<void> {
   log.info("Solaire configuré (URL masquée).");
   log.info(
     `Plage de décharge: ${describeDischargeSchedule(CONFIG.control.discharge.schedule)} ` +
-      "(la charge n'est pas affectée).",
+      "— la charge n'est pas affectée.",
+  );
+  log.info(
+    `Recharge forcée: ${describeChargeSchedule(CONFIG.control.charge.schedule)} ` +
+      "— bypass de la régulation pendant les plages.",
   );
   if (dryRun) {
     log.warn("MODE DRY-RUN : lecture seule, aucune commande ne sera envoyée à la batterie.");
@@ -373,6 +383,7 @@ async function main(): Promise<void> {
       let lastDecisionSignature = "";
       let lastStatusAt = 0;
       let lastDischargeAllowed: boolean | null = null;
+      let lastChargeForced: boolean | null = null;
 
       while (running) {
         const tickStartedAt = Date.now();
@@ -420,6 +431,18 @@ async function main(): Promise<void> {
           );
         }
         lastDischargeAllowed = decision.dischargeAllowed;
+
+        if (lastChargeForced !== null && decision.chargeForced !== lastChargeForced) {
+          const forcedPower = Math.min(
+            CONFIG.battery.maxChargePowerW,
+            CONFIG.control.charge.schedule.power,
+          );
+          log.info(
+            `[PLAGE] Recharge forcée ${decision.chargeForced ? "activée" : "terminée"} ` +
+              `(${forcedPower} W).`,
+          );
+        }
+        lastChargeForced = decision.chargeForced;
 
         if (decision.commandMode !== lastCommand.mode || decision.targetPowerW !== lastCommand.powerW) {
           const signature = `${decision.mode}|${decision.commandMode}|${decision.targetPowerW}`;
@@ -487,6 +510,7 @@ async function main(): Promise<void> {
           log.info(
             `[ÉTAT] ${gridText} | ${pvText} | ${socText} | ${batteryText} | ${loadText} | ` +
               `décharge=${decision.dischargeAllowed ? "autorisée" : "bloquée"} | ` +
+              `recharge=${decision.chargeForced ? "forcée" : "normale"} | ` +
               `mode=${decision.mode} cible=${decision.targetPowerW} W — ${decision.reason}`,
           );
         }

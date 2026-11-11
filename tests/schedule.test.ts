@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import type { DischargeScheduleConfig } from "../src/interfaces";
+import type { ChargeScheduleConfig, DischargeScheduleConfig } from "../src/interfaces";
 import {
+  describeChargeSchedule,
   describeDischargeSchedule,
+  isChargeForced,
   isDischargeAllowed,
   isTimeInWindow,
   parseTimeToMinutes,
+  validateChargeSchedule,
   validateDischargeSchedule,
 } from "../src/schedule";
 
@@ -154,5 +157,44 @@ describe("validateDischargeSchedule", () => {
     expect(
       describeDischargeSchedule({ enabled: false, mode: "block", windows: [] }),
     ).toContain("désactivée");
+  });
+});
+
+describe("recharge forcée", () => {
+  const forced: ChargeScheduleConfig = {
+    enabled: true,
+    power: 500,
+    windows: [{ start: "22:00", end: "23:00" }],
+  };
+
+  test("active la charge forcée dans la plage", () => {
+    expect(isChargeForced(at(22, 0), forced)).toBe(true);
+    expect(isChargeForced(at(22, 30), forced)).toBe(true);
+    expect(isChargeForced(at(23, 0), forced)).toBe(false);
+    expect(isChargeForced(at(12, 0), forced)).toBe(false);
+  });
+
+  test("désactivée, vide ou puissance nulle = pas de charge forcée", () => {
+    expect(isChargeForced(at(22, 30), { ...forced, enabled: false })).toBe(false);
+    expect(isChargeForced(at(22, 30), { ...forced, windows: [] })).toBe(false);
+    expect(isChargeForced(at(22, 30), { ...forced, power: 0 })).toBe(false);
+  });
+
+  test("valide la puissance et les plages", () => {
+    expect(() => validateChargeSchedule(forced)).not.toThrow();
+    expect(() => validateChargeSchedule({ ...forced, power: -1 })).toThrow();
+    expect(() =>
+      validateChargeSchedule({
+        ...forced,
+        windows: [{ start: "25:00", end: "26:00" }],
+      }),
+    ).toThrow();
+  });
+
+  test("décrit la recharge forcée", () => {
+    expect(describeChargeSchedule(forced)).toContain("500 W");
+    expect(describeChargeSchedule({ ...forced, enabled: false })).toContain(
+      "désactivée",
+    );
   });
 });

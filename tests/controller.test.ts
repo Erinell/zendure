@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { CONFIG } from "../config";
 import { BatteryController } from "../src/controller";
 import type {
+  ChargeScheduleConfig,
   ControlConfig,
   ControlDecision,
   ControlInput,
@@ -84,6 +85,16 @@ function withDischargeSchedule(schedule: DischargeScheduleConfig): ControlConfig
     ...testControlConfig,
     discharge: {
       ...testControlConfig.discharge,
+      schedule,
+    },
+  };
+}
+
+function withChargeSchedule(schedule: ChargeScheduleConfig): ControlConfig {
+  return {
+    ...testControlConfig,
+    charge: {
+      ...testControlConfig.charge,
       schedule,
     },
   };
@@ -256,6 +267,88 @@ describe("BatteryController", () => {
     h.now = localTime(23, 0, 1);
     const decision = h.feed(30, { gridW: 0, solarW: 800, socPercent: 50 });
     expect(decision.dischargeAllowed).toBe(false);
+    expect(decision.mode).toBe("charging");
+  });
+
+  test("recharge forcée : bypasse S2/PV et impose la puissance", () => {
+    const h = new Harness(
+      withChargeSchedule({
+        enabled: true,
+        power: 500,
+        windows: [{ start: "22:00", end: "23:00" }],
+      }),
+    );
+
+    h.now = localTime(22, 30, 1);
+    const decision = h.feed(5, { gridW: 500, solarW: 0, socPercent: 50 });
+    expect(decision.chargeForced).toBe(true);
+    expect(decision.mode).toBe("charging");
+    expect(decision.commandMode).toBe("charge");
+    expect(decision.targetPowerW).toBe(500);
+  });
+
+  test("recharge forcée : respecte le SOC maximum", () => {
+    const h = new Harness(
+      withChargeSchedule({
+        enabled: true,
+        power: 500,
+        windows: [{ start: "22:00", end: "23:00" }],
+      }),
+    );
+
+    h.now = localTime(22, 30, 1);
+    const decision = h.feed(5, { gridW: 500, solarW: 0, socPercent: 100 });
+    expect(decision.chargeForced).toBe(true);
+    expect(decision.mode).toBe("idle");
+    expect(decision.commandMode).toBe("standby");
+  });
+
+  test("recharge forcée : s'arrête à la fin de la plage", () => {
+    const h = new Harness(
+      withChargeSchedule({
+        enabled: true,
+        power: 500,
+        windows: [{ start: "22:00", end: "23:00" }],
+      }),
+    );
+
+    h.now = localTime(22, 30, 1);
+    const on = h.feed(5, { gridW: 500, solarW: 0, socPercent: 50 });
+    expect(on.mode).toBe("charging");
+
+    h.now = localTime(23, 0, 1);
+    const off = h.feed(5, { gridW: 500, solarW: 0, socPercent: 50 });
+    expect(off.chargeForced).toBe(false);
+    expect(off.mode).not.toBe("charging");
+  });
+
+  test("recharge forcée : plafonne la puissance à la limite configurée", () => {
+    const h = new Harness(
+      withChargeSchedule({
+        enabled: true,
+        power: 1500,
+        windows: [{ start: "22:00", end: "23:00" }],
+      }),
+    );
+
+    h.now = localTime(22, 30, 1);
+    const decision = h.feed(5, { gridW: 500, solarW: 0, socPercent: 50 });
+    expect(decision.chargeForced).toBe(true);
+    expect(decision.targetPowerW).toBe(1000);
+  });
+
+  test("recharge forcée : autorisée au SOC minimum", () => {
+    const h = new Harness(
+      withChargeSchedule({
+        enabled: true,
+        power: 300,
+        windows: [{ start: "22:00", end: "23:00" }],
+      }),
+    );
+
+    h.now = localTime(22, 30, 1);
+    const decision = h.feed(5, { gridW: 500, solarW: 0, socPercent: 20 });
+    expect(decision.chargeForced).toBe(true);
     expect(decision.mode).toBe("charging");
   });
 });

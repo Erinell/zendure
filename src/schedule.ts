@@ -1,4 +1,8 @@
-import type { DischargeScheduleConfig, DischargeScheduleWindow } from "./interfaces";
+import type {
+  ChargeScheduleConfig,
+  DischargeScheduleConfig,
+  TimeWindow,
+} from "./interfaces";
 
 /** Convertit "HH:MM" en minutes depuis minuit. "24:00" est accepté pour la fin de journée. */
 export function parseTimeToMinutes(value: string): number {
@@ -23,7 +27,7 @@ function localMinutes(now: number): number {
  * - plage qui traverse minuit (ex. 22:00-06:00) : [start, 24h[ ∪ [0h, end[
  * - start === end : plage de 24 h
  */
-export function isTimeInWindow(now: number, window: DischargeScheduleWindow): boolean {
+export function isTimeInWindow(now: number, window: TimeWindow): boolean {
   const start = parseTimeToMinutes(window.start);
   const end = parseTimeToMinutes(window.end);
   if (start === end) return true;
@@ -48,25 +52,47 @@ export function isDischargeAllowed(now: number, schedule: DischargeScheduleConfi
 }
 
 /** Valide les plages au démarrage pour éviter une erreur silencieuse à l'exécution. */
+function validateWindows(windows: TimeWindow[], label: string): void {
+  if (!Array.isArray(windows)) {
+    throw new Error(`${label}.windows doit être un tableau`);
+  }
+
+  for (const window of windows) {
+    const start = parseTimeToMinutes(window.start);
+    const end = parseTimeToMinutes(window.end);
+    if (start >= 24 * 60) {
+      throw new Error(`${label}: l'heure de début "${window.start}" doit être < 24:00`);
+    }
+    if (end > 24 * 60) {
+      throw new Error(`${label}: l'heure de fin "${window.end}" est invalide`);
+    }
+  }
+}
+
+/** Valide les plages de décharge au démarrage. */
 export function validateDischargeSchedule(schedule: DischargeScheduleConfig): void {
   if (!schedule.enabled) return;
   if (schedule.mode !== "block" && schedule.mode !== "allow") {
     throw new Error(`discharge.schedule.mode invalide: "${schedule.mode}" (attendu "block" ou "allow")`);
   }
-  if (!Array.isArray(schedule.windows)) {
-    throw new Error("discharge.schedule.windows doit être un tableau");
-  }
+  validateWindows(schedule.windows, "discharge.schedule");
+}
 
-  for (const window of schedule.windows) {
-    const start = parseTimeToMinutes(window.start);
-    const end = parseTimeToMinutes(window.end);
-    if (start >= 24 * 60) {
-      throw new Error(`discharge.schedule: l'heure de début "${window.start}" doit être < 24:00`);
-    }
-    if (end > 24 * 60) {
-      throw new Error(`discharge.schedule: l'heure de fin "${window.end}" est invalide`);
-    }
+/** Valide la recharge forcée au démarrage. */
+export function validateChargeSchedule(schedule: ChargeScheduleConfig): void {
+  if (!schedule.enabled) return;
+  if (!Number.isFinite(schedule.power) || schedule.power < 0) {
+    throw new Error("charge.schedule.power doit être un nombre positif (W)");
   }
+  validateWindows(schedule.windows, "charge.schedule");
+}
+
+/** Vrai si la recharge manuelle forcée est active à l'instant courant. */
+export function isChargeForced(now: number, schedule: ChargeScheduleConfig): boolean {
+  if (!schedule.enabled || schedule.windows.length === 0 || schedule.power <= 0) {
+    return false;
+  }
+  return schedule.windows.some((window) => isTimeInWindow(now, window));
 }
 
 /** Résumé lisible pour le log de démarrage. */
@@ -75,4 +101,15 @@ export function describeDischargeSchedule(schedule: DischargeScheduleConfig): st
   if (schedule.windows.length === 0) return "aucune plage (décharge autorisée à toute heure)";
   const mode = schedule.mode === "block" ? "blocage" : "autorisation";
   return `${mode}: ${schedule.windows.map((window) => `${window.start}-${window.end}`).join(", ")}`;
+}
+
+/** Résumé lisible de la recharge forcée. */
+export function describeChargeSchedule(schedule: ChargeScheduleConfig): string {
+  if (!schedule.enabled) return "désactivée (charge normale uniquement)";
+  if (schedule.windows.length === 0 || schedule.power <= 0) {
+    return "aucune plage active (charge normale uniquement)";
+  }
+  return `${schedule.power} W forcés: ${schedule.windows
+    .map((window) => `${window.start}-${window.end}`)
+    .join(", ")}`;
 }

@@ -5,7 +5,7 @@ import type {
   ControlInput,
   ControlMode,
 } from "./interfaces";
-import { isDischargeAllowed } from "./schedule";
+import { isChargeForced, isDischargeAllowed } from "./schedule";
 
 export interface ControllerOptions {
   config: ControlConfig;
@@ -52,6 +52,8 @@ export class BatteryController {
   private lastSurplusW: number | null = null;
   private lastAvailableLoadW: number | null = null;
   private lastDischargeAllowed = true;
+  private forcedChargeActive = false;
+  private forcedSocMaxReached = false;
 
   constructor(private readonly options: ControllerOptions) {}
 
@@ -64,6 +66,21 @@ export class BatteryController {
       this.options.config.discharge.schedule,
     );
     this.lastDischargeAllowed = dischargeAllowed;
+
+    const forcedPower = this.roundPower(
+      Math.min(
+        this.options.maxChargeW,
+        Math.max(0, this.options.config.charge.schedule.power),
+      ),
+    );
+    const chargeForced =
+      forcedPower > 0 && isChargeForced(now, this.options.config.charge.schedule);
+    if (!this.forcedChargeActive && chargeForced) {
+      this.forcedSocMaxReached = false;
+    }
+    if (!chargeForced) {
+      this.forcedSocMaxReached = false;
+    }
 
     const gridOk = input.gridValid && input.gridW !== null;
     const batteryOk = input.batteryValid && input.socPercent !== null && !input.fault;
@@ -101,6 +118,38 @@ export class BatteryController {
     } else if (this.mode === "charging" && soc >= this.options.maxSocPercent) {
       this.transitionTo("idle", now, `SOC maximum atteint (${soc}%) — charge terminée`);
       this.lastChargeEndAt = now;
+    }
+
+    // Recharge manuelle forcée : elle bypasse S2, le PV, les seuils, rampes et
+    // cooldowns. Les sécurités batterie (défaut bloquant, SOC max, puissance max)
+    // restent appliquées.
+    if (this.forcedChargeActive && !chargeForced && this.mode === "charging") {
+      this.transitionTo("idle", now, "Recharge forcée terminée (plage horaire)");
+      this.lastChargeEndAt = now;
+    }
+    this.forcedChargeActive = chargeForced;
+
+    if (chargeForced) {
+      if (soc >= this.options.maxSocPercent) {
+        this.forcedSocMaxReached = true;
+      }
+
+      if (this.forcedSocMaxReached) {
+        if (this.mode === "charging") {
+          this.transitionTo("idle", now, "Recharge forcée: SOC maximum atteint");
+          this.lastChargeEndAt = now;
+        }
+        this.targetW = 0;
+        this.reason = `Recharge forcée en attente: SOC maximum (${soc}%)`;
+      } else {
+        if (this.mode !== "charging") {
+          this.transitionTo("charging", now, "Recharge forcée manuelle");
+        }
+        this.targetW = this.roundPower(forcedPower);
+        this.reason = `Recharge forcée ${this.targetW} W (plage horaire)`;
+      }
+
+      return this.decision();
     }
 
     // La plage horaire ne concerne que la décharge. La charge continue normalement.
@@ -466,6 +515,8 @@ export class BatteryController {
       this.reason = reason;
     }
     this.targetW = 0;
+    this.forcedChargeActive = false;
+    this.forcedSocMaxReached = false;
   }
 
   private transitionTo(mode: ControlMode, now: number, reason: string): void {
@@ -515,6 +566,7 @@ export class BatteryController {
       surplusW: this.lastSurplusW,
       availableLoadW: this.lastAvailableLoadW,
       dischargeAllowed: this.lastDischargeAllowed,
+      chargeForced: this.forcedChargeActive,
     };
   }
 }

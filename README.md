@@ -8,7 +8,7 @@ Programme TypeScript/Bun qui pilote une batterie **Zendure SolarFlow 800 Plus** 
 
 Objectifs :
 
-- **charger uniquement depuis le surplus solaire** (aucune charge volontaire depuis le réseau) ;
+- **charger uniquement depuis le surplus solaire en fonctionnement normal** ; une recharge manuelle forcée peut exceptionnellement charger depuis le réseau sur des plages définies ;
 - **décharger au maximum 300 W** pour lisser la décharge dans le temps ;
 - **éviter les oscillations** charge/décharge et les pics ;
 - respecter une plage de batterie **20 % – 100 %** ;
@@ -39,7 +39,7 @@ Hypothèses importantes :
   - `SINSTS2 > 0` : la phase 2 importe ;
   - `SINSTS2 = 0` : la phase 2 n'importe pas (équilibre ou surplus PV).
 - Le surplus n'est pas revendu : toute injection est perdue, d'où l'intérêt de charger la batterie.
-- Pas de tarification HP/HC : le programme ne fait **aucune charge volontaire depuis le réseau**. Les ajustements de puissance peuvent provoquer de brefs transitoires d'import de quelques dizaines de watts, corrigés au cycle suivant.
+- Pas de tarification HP/HC : en fonctionnement normal, le programme ne fait **aucune charge volontaire depuis le réseau**. Les ajustements de puissance peuvent provoquer de brefs transitoires d'import de quelques dizaines de watts, corrigés au cycle suivant. La **recharge manuelle forcée** (section 4.6) est l'exception explicite : elle peut charger depuis le réseau pendant ses plages.
 - L'API solaire Envoy est actualisée environ **toutes les 5 minutes**. Le Linky, lui, est actualisé toutes les secondes : c'est la boucle de retour rapide.
 - La production solaire est supposée entièrement sur la phase 2. Si une partie est sur une autre phase, l'estimation de charge de la phase 2 est approximative ; la régulation par `SINSTS2` reste valable.
 
@@ -98,6 +98,7 @@ Les paramètres principaux :
 | `control.charge.rampUpStepW` | 100 | Pas de montée en charge |
 | `control.charge.backoffAboveGridW` | 50 | Import déclenchant une baisse de charge |
 | `control.charge.cooldownAfterMs` | 60000 | Délai charge → décharge |
+| `control.charge.schedule` | `{ enabled, power, windows }` | Recharge manuelle forcée, bypass de la régulation |
 | `control.discharge.startAboveGridW` | 100 | Seuil de démarrage de décharge |
 | `control.discharge.startDelayMs` | 15000 | Durée au-dessus du seuil avant décharge |
 | `control.discharge.startupSettleMs` | 25000 | Temps laissé à la batterie pour démarrer |
@@ -148,7 +149,7 @@ Pendant la charge :
 - après une réduction, attente de **60 s** avant de remonter (évite les oscillations) ;
 - arrêt si la charge tombe à 0 pendant 45 s, si le PV reste sous 80 W pendant 30 s, si le SOC atteint 100 %, ou si l'import dépasse 300 W pendant 30 s.
 
-La charge n'est **jamais lancée volontairement** à partir du réseau : si `SINSTS2` est positif, elle ne démarre pas ; si l'import apparaît en cours de charge, elle est réduite. Les ajustements peuvent créer de brefs transitoires (quelques dizaines de W), immédiatement corrigés.
+En fonctionnement normal, la charge n'est **jamais lancée volontairement** à partir du réseau : si `SINSTS2` est positif, elle ne démarre pas ; si l'import apparaît en cours de charge, elle est réduite. Les ajustements peuvent créer de brefs transitoires (quelques dizaines de W), immédiatement corrigés. La seule exception est la **recharge manuelle forcée** décrite en 4.6.
 
 ### 4.2 Décharge (consommation maison, max 300 W)
 
@@ -246,6 +247,46 @@ décharge=bloquée
 Décharge bloquée par la plage horaire
 ```
 
+### 4.6 Recharge manuelle forcée
+
+Cette fonction permet de **forcer une charge**, y compris depuis le réseau, pendant des plages définies. Elle est indépendante du surplus PV et de `SINSTS2`.
+
+Dans `config.ts`, section `control.charge` :
+
+```ts
+schedule: {
+  enabled: true,
+  power: 500,
+  windows: [
+    { start: "22:00", end: "23:00" },
+  ],
+},
+```
+
+Pendant une plage active :
+
+- la charge est forcée à `power` W ;
+- les paramètres normaux de charge sont ignorés : `SINSTS2`, production PV, seuils de démarrage, rampes, retour arrière, arrêt sur import, SOC minimum, cooldowns et plage de décharge ;
+- la batterie peut donc **importer du réseau** ;
+- la charge reste soumise aux sécurités : batterie et Linky valides, absence de défaut bloquant, SOC < 100 %, puissance plafonnée à `battery.maxChargePowerW` et à la limite matérielle ;
+- si le SOC atteint 100 % pendant la plage, la charge s'arrête et attend la fin de la plage ;
+- si la plage se termine pendant une charge forcée, la charge forcée s'arrête et la régulation normale reprend.
+
+`enabled: false`, une liste `windows` vide ou `power: 0` désactivent la recharge forcée.
+
+Les règles horaires sont les mêmes que pour la décharge : heure locale du Raspberry Pi, fin exclue, plages qui traversent minuit, `start === end` = 24 h.
+
+Logs associés :
+
+```text
+Recharge forcée: 500 W forcés: 22:00-23:00
+recharge=forcée
+[PLAGE] Recharge forcée activée (500 W).
+[PLAGE] Recharge forcée terminée (500 W).
+```
+
+> La recharge forcée est prioritaire sur la régulation et peut consommer du réseau. À utiliser manuellement et avec prudence.
+
 ---
 
 ## 5. Timings mesurés sur le matériel
@@ -313,7 +354,7 @@ Vérifie la batterie, le Linky, le solaire, la base `batteries` et la base `pann
 bun test
 ```
 
-40 tests couvrent : charge/décharge, plafonds 300 W/1 000 W, SOC 20/100 %, absence de charge la nuit, retour arrière sur import, cooldowns, anti-oscillation, classification des défauts batterie, plages horaires de décharge, données invalides.
+49 tests couvrent : charge/décharge, plafonds 300 W/1 000 W, SOC 20/100 %, absence de charge la nuit, retour arrière sur import, cooldowns, anti-oscillation, classification des défauts batterie, plages horaires de décharge, recharge manuelle forcée, données invalides.
 
 ### 7.3 Timing batterie (réel, ~3,5 min)
 
@@ -484,7 +525,7 @@ data/                         historiques locaux (ignoré par git)
 - **`SINSTS2` est une puissance apparente (VA)**, alors que `wNow` est une puissance active (W). L'estimation de charge est approximative ; la régulation par `SINSTS2` reste le retour principal.
 - **Production PV répartie** : l'estimation suppose que tous les panneaux sont sur la phase 2. Si ce n'est pas le cas, la pré-consigne est moins précise, mais l'asservissement sur `SINSTS2` corrige.
 - **API Envoy lente** : la production peut avoir 4–5 minutes de retard. Le programme ne l'utilise que comme garde-fou ; le Linky assure la rapidité.
-- **Pas de charge réseau** : c'est un choix. Si un jour vous voulez charger en heures creuses, il faudra ajouter une règle et probablement une autorisation explicite.
+- **Charge réseau** : en fonctionnement normal, aucune charge volontaire depuis le réseau. La **recharge manuelle forcée** (`control.charge.schedule`) permet de charger depuis le réseau sur des plages définies ; elle est prioritaire sur la régulation et doit être utilisée avec prudence.
 - **`smartMode`** : les commandes de régulation utilisent `smartMode=1` (pas d'écriture flash). Le standby d'arrêt utilise `smartMode=0` pour persister les limites à zéro. Selon le firmware, la lecture de `smartMode` peut afficher 1 après l'écriture ; ce sont les limites `inputLimit`/`outputLimit` à zéro qui font foi.
 - **SOC** : la batterie applique aussi ses propres limites `minSoc`/`socSet` ; le programme les vérifie et les écrit si elles diffèrent.
 - **Secrets** : `.env` contient les IP, le numéro de série, les URLs et les identifiants MySQL. Il est ignoré par git et doit rester en `chmod 600`. `config.ts` ne contient que des noms de variables, et les logs/erreurs n'affichent pas ces valeurs.
@@ -502,6 +543,7 @@ data/                         historiques locaux (ignoré par git)
 | Base MySQL inaccessible | Vérifier `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD` dans `.env` et la base `batteries` |
 | La batterie ne charge pas | Vérifier `SINSTS2=0` pendant 20 s, PV ≥ 80 W, SOC < 100 %, pas de cooldown |
 | La batterie ne décharge pas | Vérifier `SINSTS2 ≥ 100 W` pendant 15 s, SOC > 20 %, pas de cooldown, et `control.discharge.schedule` / heure locale |
+| La recharge forcée ne démarre pas | Vérifier `control.charge.schedule` (`enabled`, `power`, `windows`), l'heure locale, SOC < 100 %, données Linky/batterie valides et absence de défaut bloquant |
 | Charge qui oscille | Augmenter `settleAfterBackoffMs`, réduire `rampUpStepW`, augmenter `backoffAboveGridW` |
 | Décharge qui oscille | Augmenter `zeroHoldMs`/`cooldownAfterMs`, réduire `rampDownStepW` |
 | Le standby final n'est pas confirmé | Le programme réessaie 3 fois ; vérifier l'API batterie et les logs |
@@ -511,7 +553,8 @@ data/                         historiques locaux (ignoré par git)
 ## 12. Résumé
 
 - Le programme est prévu pour tourner en continu sur le Raspberry Pi, en service systemd.
-- Il ne charge que sur surplus solaire, décharge au maximum 300 W, et lisse toutes les décisions.
+- Il charge normalement sur surplus solaire, décharge au maximum 300 W, et lisse toutes les décisions.
+- Une recharge manuelle forcée peut être planifiée dans `control.charge.schedule` (puissance et plages horaires).
 - Il tient compte de la latence réelle de la batterie (~16 s) et de l'API PV (~5 min).
 - Il journalise dans MySQL toutes les 10 s, purge après 24 h, et fournit des scripts de test complets.
 - À l'arrêt, il envoie un standby persistant et vérifie que la batterie ne charge plus et ne décharge plus.
