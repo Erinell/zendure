@@ -111,6 +111,8 @@ Les paramètres principaux :
 | `database.history.intervalMs` | 10000 | Écriture MySQL |
 | `database.history.retentionHours` | 24 | Purge |
 | `localHistory.enabled` | false | JSONL local 1 s (diagnostic, usure SD) |
+| `localApi.enabled` / `host` / `port` | true / 127.0.0.1 / 4000 | API locale en cache, même structure que la batterie |
+| `localApi.allowWrite` | false | Autorise `POST /properties/write` sur l'API locale |
 
 Création du fichier de secrets :
 
@@ -287,6 +289,93 @@ recharge=forcée
 
 > La recharge forcée est prioritaire sur la régulation et peut consommer du réseau. À utiliser manuellement et avec prudence.
 
+### 4.7 API locale en cache
+
+Le programme peut exposer sa propre API HTTP, avec **les mêmes chemins et la même structure JSON** que l’API de la batterie :
+
+```text
+GET  /properties/report
+POST /properties/write
+```
+
+Configuration :
+
+```ts
+localApi: {
+  enabled: true,
+  host: "127.0.0.1", // 0.0.0.0 pour rendre accessible depuis le LAN
+  port: 4000,
+  allowWrite: false,
+},
+```
+
+### Lecture : `GET /properties/report`
+
+```bash
+curl http://127.0.0.1:4000/properties/report
+```
+
+- renvoie le **dernier rapport batterie reçu**, avec la même structure JSON (`sn`, `properties`, `packData`, etc.) ;
+- **ne contacte jamais la batterie** : aucune connexion supplémentaire n’est ouverte ;
+- le cache est actualisé à chaque lecture batterie (toutes les 2 s) ;
+- si la batterie est momentanément injoignable, le dernier rapport est encore servi avec :
+  - `X-Battery-Cache-Age-Ms` : âge du cache ;
+  - `X-Battery-Cache-Stale: true` : cache périmé.
+
+Plusieurs clients (Grafana Infinity, navigateur, curl) peuvent interroger cette API sans saturer le serveur HTTP de la batterie. Le programme reste le seul client de la batterie.
+
+### Écriture optionnelle : `POST /properties/write`
+
+Désactivée par défaut. Pour l’autoriser :
+
+```ts
+localApi: {
+  // ...
+  allowWrite: true,
+},
+```
+
+Le corps est identique à celui de la batterie :
+
+```json
+{
+  "sn": "EOC1NLN9N442599",
+  "properties": {
+    "acMode": 1,
+    "inputLimit": 500
+  }
+}
+```
+
+- les écritures passent par le même client batterie sérialisé que le contrôleur ;
+- le contrôleur peut reprendre la main au cycle suivant ;
+- pour une recharge manuelle planifiée, préférer `control.charge.schedule` ;
+- laisser `allowWrite: false` si l’API ne sert qu’à la visualisation.
+
+### Utilisation avec Grafana
+
+Remplacer, dans Grafana Infinity, l’URL directe de la batterie :
+
+```text
+http://192.168.1.69/properties/report
+```
+
+par l’API locale :
+
+```text
+http://127.0.0.1:4000/properties/report
+```
+
+ou, si `host: "0.0.0.0"` et Grafana est sur une autre machine :
+
+```text
+http://192.168.1.15:4000/properties/report
+```
+
+C’est la solution recommandée pour éviter les resets de l’API batterie : **un seul client batterie** (le programme), autant de clients que nécessaire sur l’API locale.
+
+> L’API locale n’a pas d’authentification. Par défaut, elle écoute sur `127.0.0.1` (Pi uniquement). Avec `0.0.0.0`, elle est accessible sur le LAN et expose notamment le numéro de série dans le rapport : à réserver au réseau local de confiance.
+
 ---
 
 ## 5. Timings mesurés sur le matériel
@@ -354,7 +443,7 @@ Vérifie la batterie, le Linky, le solaire, la base `batteries` et la base `pann
 bun test
 ```
 
-49 tests couvrent : charge/décharge, plafonds 300 W/1 000 W, SOC 20/100 %, absence de charge la nuit, retour arrière sur import, cooldowns, anti-oscillation, classification des défauts batterie, plages horaires de décharge, recharge manuelle forcée, données invalides.
+56 tests couvrent : charge/décharge, plafonds 300 W/1 000 W, SOC 20/100 %, absence de charge la nuit, retour arrière sur import, cooldowns, anti-oscillation, classification des défauts batterie, plages horaires de décharge, recharge manuelle forcée, API locale en cache, données invalides.
 
 ### 7.3 Timing batterie (réel, ~3,5 min)
 
@@ -503,6 +592,7 @@ src/devices/solar.ts          client Envoy (wNow)
 src/database.ts               écriture MySQL 10 s + purge 24 h
 database/schema.sql           création de la table soc
 src/local-history.ts          JSONL local 1 s (optionnel)
+src/local-api.ts              API HTTP locale en cache
 src/http.ts                   fetch JSON avec timeout
 src/logger.ts                 logs console
 tests/connectivity.ts         vérification lecture seule
@@ -511,6 +601,7 @@ tests/history.ts              analyse des historiques (lecture seule)
 tests/controller.test.ts      tests unitaires du contrôleur
 tests/schedule.test.ts        tests des plages horaires
 tests/battery-fault.test.ts   tests de classification des défauts batterie
+tests/local-api.test.ts       tests de l'API locale en cache
 tests/main-smoke.ts           test de bout en bout + standby
 systemd/zendure.service.example
 data/                         historiques locaux (ignoré par git)
@@ -547,6 +638,9 @@ data/                         historiques locaux (ignoré par git)
 | Charge qui oscille | Augmenter `settleAfterBackoffMs`, réduire `rampUpStepW`, augmenter `backoffAboveGridW` |
 | Décharge qui oscille | Augmenter `zeroHoldMs`/`cooldownAfterMs`, réduire `rampDownStepW` |
 | Le standby final n'est pas confirmé | Le programme réessaie 3 fois ; vérifier l'API batterie et les logs |
+| L'API locale est inaccessible | Vérifier `localApi.enabled`, `host`/`port`, le pare-feu ; avec `127.0.0.1`, elle n'est accessible que depuis le Pi |
+| L'API locale renvoie 503 | Le programme n'a pas encore de cache batterie ou la batterie est inaccessible au démarrage |
+| Grafana Infinity interroge encore la batterie | Remplacer l'URL batterie par `http://127.0.0.1:4000/properties/report` ou utiliser MySQL |
 
 ---
 
@@ -557,4 +651,5 @@ data/                         historiques locaux (ignoré par git)
 - Une recharge manuelle forcée peut être planifiée dans `control.charge.schedule` (puissance et plages horaires).
 - Il tient compte de la latence réelle de la batterie (~16 s) et de l'API PV (~5 min).
 - Il journalise dans MySQL toutes les 10 s, purge après 24 h, et fournit des scripts de test complets.
+- Une API locale en cache (`/properties/report`) permet à Grafana ou à d'autres clients de lire le dernier état sans ouvrir de connexion supplémentaire vers la batterie.
 - À l'arrêt, il envoie un standby persistant et vérifie que la batterie ne charge plus et ne décharge plus.

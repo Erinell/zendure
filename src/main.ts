@@ -4,6 +4,7 @@ import { HistoryDatabase, formatLocalDateTime } from "./database";
 import { BatteryClient, BatterySerialMismatchError } from "./devices/battery";
 import { LinkyClient } from "./devices/linky";
 import { SolarClient } from "./devices/solar";
+import { LocalApiServer } from "./local-api";
 import { LocalHistory } from "./local-history";
 import { errorMessage, log, setLogLevel } from "./logger";
 import {
@@ -13,6 +14,7 @@ import {
   validateDischargeSchedule,
 } from "./schedule";
 import type {
+  BatteryReport,
   BatterySnapshot,
   CommandMode,
   ControlDecision,
@@ -169,6 +171,21 @@ async function main(): Promise<void> {
   let batteryState: SensorState<BatterySnapshot> = emptySensor();
   let solarState: SensorState<SolarSnapshot> = emptySensor();
 
+  let lastBatteryReport: BatteryReport | null = null;
+  let lastBatteryReportAt = 0;
+  const localApi = new LocalApiServer({
+    config: {
+      ...CONFIG.localApi,
+      allowWrite: CONFIG.localApi.allowWrite && !dryRun,
+    },
+    serialNumber: CONFIG.battery.serialNumber,
+    cacheMaxAgeMs: CONFIG.control.dataTimeoutMs,
+    getReport: () => lastBatteryReport,
+    getCacheAgeMs: () =>
+      lastBatteryReportAt > 0 ? Date.now() - lastBatteryReportAt : null,
+    write: (properties) => battery.write(properties),
+  });
+
   async function sendStandbyPersistent(): Promise<void> {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -197,6 +214,9 @@ async function main(): Promise<void> {
     shuttingDown = true;
     running = false;
     log.info(`Arrêt demandé (${signal}).`);
+
+    // On ferme d'abord l'API locale pour ne plus accepter de commandes externes.
+    await localApi.stop();
 
     // On laisse la boucle de contrôle terminer sa commande éventuelle avant le standby.
     if (controlLoopPromise) {
@@ -280,6 +300,17 @@ async function main(): Promise<void> {
       }
     }
 
+    // Cache initial pour l'API locale, puis démarrage de l'API.
+    lastBatteryReport = initial.report;
+    lastBatteryReportAt = Date.now();
+    if (CONFIG.localApi.enabled) {
+      try {
+        localApi.start();
+      } catch (error) {
+        log.error(`API locale impossible à démarrer: ${errorMessage(error)}`);
+      }
+    }
+
     // ── Boucles de lecture ─────────────────────────────────────────────────
     const linkyLoop = (async () => {
       while (running) {
@@ -314,6 +345,8 @@ async function main(): Promise<void> {
         const startedAt = Date.now();
         try {
           const result = await battery.getReport();
+          lastBatteryReport = result.report;
+          lastBatteryReportAt = Date.now();
           batteryState = {
             value: result.snapshot,
             fetchedAt: Date.now(),

@@ -251,6 +251,16 @@ export interface LoggingConfig {
   statusIntervalMs: number;
 }
 
+export interface LocalApiConfig {
+  /** Active l'API HTTP locale en cache. */
+  enabled: boolean;
+  /** Interface d'écoute : 127.0.0.1 pour le Pi, 0.0.0.0 pour le LAN. */
+  host: string;
+  port: number;
+  /** Autorise POST /properties/write. Désactivé par défaut. */
+  allowWrite: boolean;
+}
+
 export interface AppConfig {
   battery: BatteryConfig;
   linky: LinkyConfig;
@@ -258,6 +268,7 @@ export interface AppConfig {
   control: ControlConfig;
   database: DatabaseConfig;
   localHistory: LocalHistoryConfig;
+  localApi: LocalApiConfig;
   logging: LoggingConfig;
   /** Mode lecture seule : aucune commande n'est envoyée à la batterie. */
   dryRun: boolean;

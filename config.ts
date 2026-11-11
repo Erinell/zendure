@@ -157,6 +157,13 @@ export const CONFIG: AppConfig = {
     retentionDays: 7, // conservation des fichiers (jours)
   },
 
+  localApi: { // API locale en cache, même structure que l'API batterie
+    enabled: true, // activer l'API locale
+    host: "127.0.0.1", // 127.0.0.1 = Pi uniquement ; 0.0.0.0 = accessible sur le LAN
+    port: 4000, // port HTTP local
+    allowWrite: false, // autoriser POST /properties/write (désactivé par défaut)
+  },
+
   logging: {
     level: "info", // debug | info | warn | error
     statusIntervalMs: 10_000, // ligne de synthèse dans la console (ms)
